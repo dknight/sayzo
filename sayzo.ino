@@ -1,23 +1,25 @@
-#include <TVout.h>
-#include <fontALL.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include "gfx.h"
 
-// PIN 9 - 1k ohm
-// PIN 7 - 470 ohm
+#define OLED_RESET 4
+Adafruit_SSD1306 display(OLED_RESET);
 
-#define DEBUG            1
-#define BUTTON_A         2
-#define BUTTON_B         3
+#define DEBUG            0
+#define BUTTON_A_PIN     8
+#define BUTTON_B_PIN     9
 #define SPRITE_ATIME    40
 #define MAX_GM_ACCLRN    7
 #define SWITCH_ACCLRN  500
-#define SZY_JUMP_H      32
+#define SZY_JUMP_H       0
 #define SZY_JUMP_OFFST   4
-#define ENEMY_TYPES_CNT  3
+#define ENEMY_TYPES_CNT  4
 #define TUTOR_MODE_CNT  80
 #define COLLISION_OFFST  1
+#define FLAKES_NUM      30
 
-TVout TV;
 int i;
 unsigned long currentTime;
 unsigned long prevTime    = 0;
@@ -28,6 +30,7 @@ unsigned int score        = 0;
 unsigned int hiscore      = 0;
 char gmstarted            = 0;
 char isgmover             = 0;
+char starsDrawn           = 0;
 int btnreadA;
 int btnreadB;
 
@@ -46,7 +49,7 @@ struct Enemy {
   char y;
   char w;
   char h;
-  int type; // -1, 0, 1, 2 ...
+  int type; // -1, 0, 1, 2, 3 ...
 };
 
 struct Cloud {
@@ -59,6 +62,7 @@ Enemy enemy;
 Cloud cld1;
 Cloud cld2;
 
+
 void drawWorld();
 void drawSayzo();
 void drawEnemy();
@@ -67,31 +71,41 @@ int generateEnemy();
 char detectCollision();
 void gmreset();
 void gmover();
+void draw_snow(uint8_t count);
 
 void setup() {
 
-  //Serial.begin(9600);
+  Serial.begin(9600);
   randomSeed(analogRead(A0));
-  pinMode(BUTTON_A, INPUT);
-  pinMode(BUTTON_B, INPUT);
+  pinMode(BUTTON_A_PIN, INPUT);
+  pinMode(BUTTON_B_PIN, INPUT);
   
-  TV.begin(PAL, 128, 96);
-  TV.select_font(font6x8);
-  TV.println("Ready\n");
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  display.setTextColor(WHITE, BLACK);
+  display.setTextSize(1);
+
+  display.setCursor(0, 0);
+  display.println("Ready...\n");
+  display.display();
   delay(2000);
-  TV.println("2017 Dmitri Smirnov\n");
-  TV.println("http://www.whoop.ee\n");
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("2017-2018\nDmitri Smirnov\nAleksei Smirnov\n\nhttp://www.whoop.ee");
+  display.display();
   delay(5000);
-  TV.bitmap(0, 0, intro);
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.drawBitmap(0, 0, intro, 128, 64, WHITE);
+  display.display();
   gmreset();
+  draw_snow(FLAKES_NUM);
 }
 
 void loop() {
 
-  //TV.draw_rect(0, 0, 127, 95, 1);
-
-  btnreadA = digitalRead(BUTTON_A);
-  btnreadB = digitalRead(BUTTON_B);
+  btnreadA = digitalRead(BUTTON_A_PIN);
+  btnreadB = digitalRead(BUTTON_B_PIN);
 
   if (btnreadA == HIGH || btnreadB == HIGH) {
     if (isgmover == 1) {
@@ -102,8 +116,7 @@ void loop() {
   }
   
   if (gmstarted) {
-    TV.delay_frame(3);
-    TV.clear_screen();
+    display.clearDisplay();
 
     if (btnreadA == HIGH && sayzo.jump == 0) {
       sayzo.jump = 1;
@@ -113,21 +126,11 @@ void loop() {
     } else {
       sayzo.crawl = 0;
     }
-
+    
     if (enemy.x < 0) {
       generateEnemy();
     }
     
-    drawWorld();
-    drawEnemy();
-    drawSayzo();
-    
-    // Game over
-    if (detectCollision() == 1) {
-      TV.bitmap(sayzo.x, sayzo.y, ninja[3]);
-      gmover(); 
-      return;
-    }
 
     // Accelerate speed. Longer you play game go faster.
     if (score % SWITCH_ACCLRN == 0 && acclrn <= MAX_GM_ACCLRN) {
@@ -136,14 +139,34 @@ void loop() {
     gmspeed += acclrn;
 
     updateScore();
+    drawWorld();
+    drawEnemy();
+    drawSayzo();
+
+    // Game over
+    if (detectCollision() == 1) {
+      display.drawBitmap(sayzo.x, sayzo.y, ninja[3], 16, 16, WHITE);
+      delay(40);
+      gmover();
+      return;
+    }
+    
+    display.display();
   } // end of game started if
   
 } // end of loop
 
+
+void draw_snow(uint8_t count)
+{
+  for (i = 0; i < count; ++i) {
+     display.drawPixel((uint16_t)random(display.width()), (uint16_t)random(display.height()/2), WHITE);
+  }
+  //display.display();
+  starsDrawn = 1;
+}
 void gmreset() {
   
-  TV.select_font(font4x6);
-
   gmspeed = 1;
   acclrn  = 0;
   score   = 0;
@@ -151,22 +174,23 @@ void gmreset() {
   sayzo.w = 16;
   sayzo.h = 16;
   sayzo.x = 16;
-  sayzo.y = 64;
+  sayzo.y = 32;
   sayzo.jump = 0;
   sayzo.fall = 0;
   sayzo.crawl = 0;
   
-  cld1.x = 8;
+  cld1.x = display.width();
   cld1.y = 1;
-  cld2.x = 67;
-  cld2.y = 12;
+  cld2.x = display.width() + 96 ;
+  cld2.y = 4;
 
-  enemy.x = TUTOR_MODE_CNT;
+  enemy.x = 0;
   enemy.y = 0;
   enemy.w = 0;
   enemy.h = 0;
   enemy.type = -1;
 }
+
 void drawSayzo() {
   currentTime = millis();
   if (currentTime - prevTime >= SPRITE_ATIME) {
@@ -175,7 +199,7 @@ void drawSayzo() {
     // Set height 8 only for crawl mode.
     sayzo.h = 16;
     
-    if (sayzo.y < 64 && sayzo.jump == 0) {
+    if (sayzo.y < 32 && sayzo.jump == 0) {
       sayzo.y += SZY_JUMP_OFFST;
       sayzo.fall = 1;
     } else if (sayzo.y > SZY_JUMP_H && sayzo.jump == 1) {
@@ -190,15 +214,15 @@ void drawSayzo() {
       if (sayzo.y < SZY_JUMP_H) {
         sayzo.jump = 0;
       }
-      TV.bitmap(sayzo.x, sayzo.y, ninja[2]);
+      display.drawBitmap(sayzo.x, sayzo.y, ninja[2], 16, 16, WHITE);
     } else if (sayzo.crawl == 1) {
       sayzo.h = 8;
-      TV.bitmap(sayzo.x, sayzo.y + 8, ninja[ninjaSprite++]);
+      display.drawBitmap(sayzo.x, sayzo.y + 8, ninja[ninjaSprite++], 16, 16, WHITE);
       if (ninjaSprite > 6 || ninjaSprite < 4) {
         ninjaSprite = 4;
       }
     } else {
-      TV.bitmap(sayzo.x, sayzo.y, ninja[ninjaSprite++]);
+      display.drawBitmap(sayzo.x, sayzo.y, ninja[ninjaSprite++], 16, 16, WHITE);
       if (ninjaSprite > 2) {
         ninjaSprite = 0;
       }
@@ -206,78 +230,81 @@ void drawSayzo() {
   }
 }
 
-void drawEnemy() {
-  enemy.x -= acclrn;
-  switch (enemy.type) {
-    case 0:
-      TV.bitmap(enemy.x, enemy.y, enemy1);
-      break;
-    case 1:
-      TV.bitmap(enemy.x, enemy.y, enemy2);
-      break;
-    case 2:
-      TV.bitmap(enemy.x, enemy.y, enemy3);
-      break;
-    default:
-      break;
-  }
-}
-
 void drawWorld() {
-  TV.bitmap(87, 9, moon);
-  TV.bitmap(cld1.x - gmspeed, cld1.y, cloud);
-  TV.bitmap(cld2.x - gmspeed, cld2.y, cloud);
-  for (i = 128; i >= 0; i -= 16) {
-    TV.bitmap(i - gmspeed, 80, ground);
+  if (score > 1500) {
+    draw_snow(FLAKES_NUM);
+  }
+  display.drawBitmap(12, 16, mountains, 96, 16, WHITE);
+  display.drawBitmap(cld1.x - gmspeed, cld1.y, cloud, 32, 16, WHITE);
+  display.drawBitmap(cld2.x - gmspeed, cld2.y, cloud, 32, 16, WHITE);
+  display.drawBitmap(97, 3, moon, 16, 16, WHITE);
+  for (i = 384; i >= 0; i -= 16) {
+    display.drawBitmap(i - gmspeed, display.height()-16, ground, 16, 16, WHITE);
   }
 }
 
 void updateScore() {
-  TV.println(0, 0, score);
+  display.setCursor(0, 0);
+  display.println(score);
   score++;
-  if (hiscore > 0) {
-    TV.println(92, 0, "TOP ");
-    TV.println(107, 0, hiscore);
-  }
+  //if (hiscore > 0) {
+  //  display.setCursor(80, 0);
+  //  display.println(hiscore);
+  //}
 }
 
 int generateEnemy() {
-  int entype = random(ENEMY_TYPES_CNT);
-  enemy.type = entype;
-  switch (entype) {
+  int enemy2subtypes[4] = {0, 8, 12, 24};
+  int subtype;
+  enemy.type = random(ENEMY_TYPES_CNT);
+  enemy.x = 112;
+  switch (enemy.type) {
     case 0:
-      enemy.x = 112;
-      enemy.y = 72;
+      enemy.y = 40;
       enemy.w = 16;
       enemy.h = 8;
       break;
     case 1:
-      enemy.x = 112;
-      enemy.y = 64;
+      enemy.y = 32;
       enemy.w = 16;
       enemy.h = 16;
+      break;
+    case 3:
+      enemy.y = 28;
+      enemy.w = 16;
+      enemy.h = 20;
       break;
     case 2:
-      int subtype = random(4);
-      if (subtype == 0) {
-        enemy.y = 32;
-      }
-      else if (subtype == 1) {
-        enemy.y = 40;  
-      }
-      else if (subtype == 2) {
-        enemy.y = 48;  
-      }
-      else {
-        enemy.y = 56;
-      }
-      enemy.x = 112;
+      subtype = random(4);
+      enemy.y = enemy2subtypes[subtype];
       enemy.w = 16;
       enemy.h = 16;
-      break;
+      break;  
+    default:
+      break; 
    }
 
-  return entype;
+  return enemy.type;
+}
+
+void drawEnemy() {
+  enemy.x -= acclrn;
+  switch (enemy.type) {
+    case 0:
+      display.drawBitmap(enemy.x, enemy.y, enemy1, 16, 8, WHITE);
+      break;
+    case 1:
+      display.drawBitmap(enemy.x, enemy.y, enemy2, 16, 16, WHITE);
+      break;
+    case 2:
+      display.drawBitmap(enemy.x, enemy.y, enemy3, 16, 16, WHITE);
+      break;
+    case 3:
+      display.drawBitmap(enemy.x, enemy.y, enemy4, 16, 20, WHITE);
+      break;
+    default:
+      break;
+  }
 }
 
 char detectCollision() {
@@ -299,13 +326,17 @@ char detectCollision() {
 
 void gmover() {
   updateScore();
-  TV.select_font(font8x8);
-  TV.println(25, 30, "GAME OVER");
   gmstarted = 0;
+  starsDrawn = 0;
   isgmover = 1;
   if (score > hiscore) {
     hiscore = score;
   }
+  display.setCursor(26, 24);
+  display.println("GAME OVER");
+  display.setCursor(12, 32);
+  display.print("High score: ");
+  display.print(hiscore);
+  display.display();
   delay(3000);
 }
-
