@@ -255,6 +255,7 @@ void updateScore() {
 
 int generateEnemy() {
   int enemy2subtypes[4] = {0, 8, 12, 24};
+  int subtype;
   enemy.type = random(ENEMY_TYPES_CNT);
   enemy.x = 112;
   switch (enemy.type) {
@@ -274,7 +275,7 @@ int generateEnemy() {
       enemy.h = 20;
       break;
     case 2:
-      int subtype = random(4);
+      subtype = random(4);
       enemy.y = enemy2subtypes[subtype];
       enemy.w = 16;
       enemy.h = 16;
